@@ -1,0 +1,872 @@
+---
+title: "exam_project_domenico_pagliaro_128291"
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Il dataset che viene analizzato è stato reperito su "https://www.kaggle.com/datasets", tratta degli strumenti che vengono taggati dagli sviluppatori sul sito "StackOverflow", indica quante volte (indicativamente) questi strumenti vengono taggati, con quali altri strumenti vengono taggati e quanto spesso (d'ora in poi chiamerò "utilizzo" il numero di tag di un determinato strumento e "connessione" il numero di volte che due strumenti vengono taggati insieme). E' formato da due .csv, uno contenente i nodi e uno contenente gli archi. Lo scopo di quest'analisi è fornire una risposta a una serie di domande, che viene naturale porsi osservando il dataset. 
+
+# caricamento librerie
+```{r}
+library(tidyr)
+library(dplyr)
+library(tidyverse)
+library(stringr)
+library(igraph)
+library(readr)
+library(ggraph)
+library(ggrepel)
+library(ggplot2)
+library(ggalt)
+library(directlabels)
+library(neuralnet)
+library(scales)
+library(ggcorrplot)
+library(rmarkdown)
+```
+
+# lettura dataset, i nomi dei gruppi a cui appartengono gli strumenti vengono rinominati         assegnando come nuovo nome del gruppo il nome delo strumento utilizzato di più.
+```{r}
+windowsFonts(RobotoBold=windowsFont("Roboto-Bold"))
+nodes <- read.csv("stack_network_nodes.csv")
+edges <- read.csv("stack_network_links.csv")
+nodes1 <- nodes %>%
+  rename(usage = nodesize) %>%
+  mutate(group = ifelse(group == "1", "Python group",
+                        ifelse(group == "2", "C# group",
+                        ifelse(group == "3", "nodeJS group", 
+                        ifelse(group == "4", "Android group",
+                        ifelse(group == "5", "Linux group", 
+                        ifelse(group == "6", "JavaScript group",
+                        ifelse(group == "7", "Angular group",
+                        ifelse(group == "8", "Java group",
+                        ifelse(group == "9", "Docker group",
+                        ifelse(group == "10", "Scala group",
+                        ifelse(group == "11", "Selenium group",
+                        ifelse(group == "12", "Agile group",
+                        ifelse(group == "13", "Perl group",
+                        ifelse(group == "14", "Excell group", ""
+                        )))))))))))))))
+edges1 <- edges %>%
+  rename(connection = value) %>%
+  mutate(connection = connection)
+#View(nodes1)
+#View(edges1)
+  
+```
+
+
+# GRAFO 0) dataset graph
+```{r}
+
+g = graph_from_data_frame(edges1, directed = F, nodes1)
+lay = create_layout(g, layout = "igraph", algorithm = "nicely")
+
+ggraph(lay) + 
+  geom_edge_link(aes(alpha = connection), show.legend = NA, width = 1) +
+  labs(title = "dataset graph") +
+  geom_node_point(aes(color = group, size = usage), position = "identity", show.legend = NA) +
+  geom_node_text(aes(label = name), show.legend = F, size = 2.5, repel = T) +
+  theme(panel.background = element_blank(), axis.text = element_blank(),
+        axis.ticks = element_blank(), axis.title = element_blank()) +
+  scale_color_manual(values = c("#FF9999", "#FF0000", "#FF8000", "#FFFF00", "#80FF00",                                         "#00FF00", "#00FF80", "#00FFFF", "#0080FF", "#0000FF",                                         "#7F00FF", "#FF00FF", "#FF007F", "#808080"))
+
+#possiamo tradurre l'intero dataset in un grafo, i nodi corrispondono agli strumenti e la dimensione all'utilizzo. gli archi definiscono il livello di connessione (trasparenza) tra due strumenti. il colore definisce il gruppo di appartenenza di ogni strumento. 
+
+```
+
+# DOMANDA 1) quanti strumenti conta ciascun gruppo, quali gruppi sono i piu numerosi?
+```{r}
+nodes_n <- nodes1 %>%
+  count(group) %>%
+  arrange(desc(group))
+
+ggplot(nodes_n, aes(x = "", y = n, fill = group)) + 
+  geom_bar(width = 1, stat = "identity") +
+  scale_fill_manual(values = c("#FF9999", "#FF0000", "#FF8000", "#FFFF00", "#80FF00",                                         "#00FF00", "#00FF80", "#00FFFF", "#0080FF", "#0000FF",                                         "#7F00FF", "#FF00FF", "#FF007F", "#808080")) +
+  labs(title = "tools for group polar barplot") +
+  coord_polar(theta = "y", start = 0, direction = -1) + 
+  theme(axis.title = element_blank(), axis.text = element_blank(),
+        axis.ticks = element_blank()) +
+  geom_text(aes(x = 1.3, y = cumsum(n) - n/2, label = n), size=5)
+
+# Le famiglie di strumenti più utilizzate sono:
+# - JavaScript group
+# - C# group
+# - Java group
+
+```
+# DOMANDA 2) quali sono gli strumenti utilizzati di più dagli sviluppatori?
+```{r}
+nodes_most_tagged <- nodes1 %>%
+  arrange(-usage) %>%
+  head(10)
+
+ggplot(nodes_most_tagged, aes(x = group, y = usage)) + 
+  labs(title = "most tagged barplot") + 
+  geom_col(aes(fill = group), color = "black", position = "dodge2", show.legend = F) +
+  scale_fill_manual(values = c("#FF0000", "#FFFF00", "#00FF80", "#00FFFF", "#FF00FF")) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  geom_text(aes(label = name), position = position_dodge2(width = 1), angle = 90,
+            hjust = 1.1)
+
+# Gli strumenti più utilizzati sono:
+# - JavaScript
+# - Java
+# - Python
+
+```
+# DOMANDA 3) qual è la distribuzione dell'utilizzo degli strumenti in ogni gruppo?
+```{r}
+nodes_distribution <- nodes1 %>%
+    mutate(group = substr(group, 0, nchar(group) - 6))
+
+ggplot(nodes_distribution) + 
+  geom_boxplot(mapping = aes(y = usage, x = group, color = group), show.legend = F) +
+  scale_colour_manual(values = c("#FF9999", "#FF0000", "#FF8000", "#FFFF00", "#80FF00",                                         "#00FF00", "#00FF80", "#00FFFF", "#0080FF", "#0000FF",                                         "#7F00FF", "#FF00FF", "#FF007F", "#808080")) +
+  labs(title = "tag distribution boxplot") 
+
+# Il gruppo di Java è il terzo per numero di strumenti, osservando la distribuzione vediamo      che quasi tutti gli strumenti hanno un utilizzo relativamente basso ma proprio Java come       outlier (secondo per utilizzo) spicca su tutti gli altri. Il gruppo Java e il gruppo Python    sono simili: ci sono molti strumenti sopra la mediana che arrivano ad un utilizzo degno di     nota, rendendo i gruppi popolati e popolati di altri strumenti importanti al di fuori degli    outliers.
+
+```
+
+# DOMANDA 4) qual è il gruppo più utilizzato in media?
+```{r}
+nodes_mean_tag <- nodes1 %>%
+  count(group) %>%
+  left_join(nodes1, nodes_mean_tag, by = "group") %>%
+  select(name, group, usage, n) %>%
+  mutate(usage = format(round(usage, 2)))  
+
+nodes_mean_tag2 <- nodes1 %>%
+  group_by(group) %>%
+  summarise(mean = mean(usage)) %>%
+  mutate(mean = format(round(mean, 2))) %>%
+  arrange(-as.double(mean))
+
+nodes_mean_tag3 <- full_join(nodes_mean_tag, nodes_mean_tag2, by = "group") %>%
+  mutate(group = substr(group, 0, nchar(group) - 6)) %>%
+  mutate(usage = as.double(usage))
+
+nodes_mean_tag4 <- nodes_mean_tag3 %>%
+  mutate(usage = usage/n)
+
+ggplot(nodes_mean_tag4) +
+  geom_col(aes(x = group, y = mean, fill = group), show.legend = F, position = "dodge",
+           color = "black") +
+  scale_fill_manual(values = c("#FF9999", "#FF0000", "#FF8000", "#FFFF00", "#80FF00",                                         "#00FF00", "#00FF80", "#00FFFF", "#0080FF", "#0000FF",                                         "#7F00FF", "#FF00FF", "#FF007F", "#808080")) +
+  
+  labs(title = "mean tag barplot")
+
+# I gruppi più utilizzati in media sono:
+# - JavaScript group
+# - Python group
+# - Java group
+# A partire dalla distribuzione precedente questo risulta abbastanza ovvio per i gruppi          JavaScript e Python. Per il gruppo Java è solo proprio Java a portare la media di gruppo       terza in posizione.
+
+```
+# DOMANDA 5) quanto effetto hanno gli strumenti sulla media per gruppo?
+```{r}
+nodes_mean_tag_aff <- nodes_mean_tag3 %>%
+  mutate(usage = usage/n) %>%
+  mutate(mean = as.numeric(mean)) %>%
+  mutate(cents = usage*100/mean) %>%
+  mutate(cents = format(round(cents, 2))) %>%
+  mutate(cents = as.numeric(cents))
+
+ggplot(nodes_mean_tag_aff) + 
+  geom_point(mapping = aes(x = group, y = cents, color = group), show.legend = F) +
+  labs(title = "Affect on mean tag scatterplot (%)") + 
+  geom_text_repel(aes(label = ifelse(cents > 25, as.character(name), ""), x = group,
+                      y = cents), show.legend = F, size = 2.5) +
+  scale_color_manual(values = c("#FF9999", "#FF0000", "#FF8000", "#FFFF00", "#80FF00",                                         "#00FF00", "#00FF80", "#00FFFF", "#0080FF", "#0000FF",                                         "#7F00FF", "#FF00FF", "#FF007F", "#808080")) +
+  ylim(0,101)
+
+# Possiamo considerare la distrubuzione descritta precedentemente con questo scatterplot, che    mostra con precisione l'effetto in percentuale sulla media di ogni strumento (> 25%).
+
+```
+
+# GRAFO 1) connessioni
+```{r}
+edges_connection <- edges1 %>%
+  rename(name = source)
+
+edges_connection2 <- edges1 %>%
+  rename(name = target)
+
+edges_connection3 <- edges_connection2 %>%
+  full_join(nodes1, edges_connection2, by ="name") %>%
+  rename(target = name) %>%
+  select(group)
+
+edges_connection4 <- edges_connection %>%
+  full_join(nodes1, edges_connection, by ="name") %>%
+  rename(source = name) %>%
+  mutate(group2 = edges_connection3$group)
+
+g = graph_from_data_frame(edges_connection4, directed = F, nodes1)
+lay = create_layout(g, layout = "igraph", algorithm = "nicely")
+
+ggraph(lay) + 
+  geom_edge_link(aes(alpha = connection,
+                     edge_colour = ifelse(edges_connection4$group != edges_connection4$group2,
+                                          "different group","same group")),
+                 show.legend = NA, width = 1) +
+  labs(title = "connection graph", edge_colour = "membership") +
+  scale_edge_color_manual(values = c("red", "gray")) +
+  geom_node_point(aes(color = group), position = "identity", size = 3, show.legend = NA) +
+  geom_node_text(aes(label = name), show.legend = F, size = 2.5, repel = T) +
+  theme(panel.background = element_blank(), axis.text = element_blank(),
+        axis.ticks = element_blank(), axis.title = element_blank()) +
+  scale_color_manual(values = c("#FF9999", "#FF0000", "#FF8000", "#FFFF00", "#80FF00",                                         "#00FF00", "#00FF80", "#00FFFF", "#0080FF", "#0000FF",                                         "#7F00FF", "#FF00FF", "#FF007F", "#808080"))
+
+# Il grafo mostra gli strumenti connessi. L'arco rosso definisce le connessioni tra strumenti    appartenenti a gruppi diversi, l'arco nero le connessioni interne.
+
+```
+# DOMANDA 6) quali sono gli strumenti più connessi tra loro?
+```{r}
+edges_connected <- edges_connection %>%
+  full_join(nodes1, edges_connection, by ="name") %>%
+  rename(source = name) %>%
+  mutate(group2 = edges_connection3$group) %>%
+  filter(connection > mean(connection)) %>%
+  arrange(-connection) %>%
+  distinct(connection, .keep_all = T) %>%
+  head(10)
+
+ggplot(edges_connected) +
+  labs(title = "most connected scatterplot") +
+  geom_point(aes(x = source, y = connection, color = group2), size = 3) +
+  geom_point(aes(x = source, color = group), y = 0, size = 3) +
+  geom_segment(aes(y = 0, yend = connection, x = source, xend = source)) +
+  geom_text_repel(aes(x = source, y = connection, label = target), size = 2.5,
+            color = ifelse(edges_connected$group == edges_connected$group2,
+                                       "black", "red")) +
+  scale_color_manual(values = c("#FF0000", "#FFFF00", "#00FF80", "#00FFFF", "#0000FF",
+                                "#FF00FF")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+
+# Le connessioni più rilevanti si hanno tra strumenti appartenenti allo stesso gruppo (come si   poteva intuire):
+# - CSS <-> HTML 
+# - Hibernate <-> Spring
+# - Ruby <-> Ruby On Rails
+
+```
+# GRAFO 2) degree centrality
+```{r}
+g = graph_from_data_frame(edges_connection4, directed = F, nodes1)
+
+edges_degree <- edges_connection %>%
+  full_join(nodes1, edges_connection, by ="name") %>%
+  rename(source = name) %>%
+  mutate(group2 = edges_connection3$group)
+
+nodes_degree <- nodes1 %>%
+  mutate(degree = strength(g, weights = edges_degree$connection))
+
+g = graph_from_data_frame(edges_degree, directed = F, nodes_degree)
+lay = create_layout(g, layout = "igraph", algorithm = "nicely")
+
+ggraph(lay) + 
+  geom_edge_link(aes(alpha = connection), show.legend = NA, width = 1, edge_colour = "gray") +
+  labs(title = "degree centrality graph") +
+  geom_node_point(aes(size = degree, color = group), position = "identity", show.legend = NA) +
+  geom_node_text(aes(label = ifelse(degree > mean(degree), as.character(name), "")),
+                 show.legend = F, size = 3, repel = T) +
+  theme(panel.background = element_blank(), axis.text = element_blank(),
+        axis.ticks = element_blank(), axis.title = element_blank()) +
+  scale_color_manual(values = c("#FF9999", "#FF0000", "#FF8000", "#FFFF00", "#80FF00",                                         "#00FF00", "#00FF80", "#00FFFF", "#0080FF", "#0000FF",                                         "#7F00FF", "#FF00FF", "#FF007F", "#808080"))
+
+# Il grafo mostra la degree centrality (di tipo 'all', essendo il grafo indiretto) definita      dalla dimensione dei nodi. Gli strumenti etichettati sono quelli con centralità maggiore       della centralità media del grafo.
+
+```
+
+# DOMANDA 7) quali sono gli strumenti connessi a più strumenti?
+```{r}
+nodes_most_degree <- nodes_degree %>%
+  arrange(-degree) %>%
+  head(10)
+
+ggplot(nodes_most_degree, aes(x = group, y = degree)) + 
+  geom_col(aes(fill = group), show.legend = F, color = "black",
+           position = "dodge2") +
+  labs(title = "most degree centrality barplot") + 
+  scale_fill_manual(values = c("#FFFF00", "#00FF80", "#00FFFF")) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  geom_text(aes(label = name), position = position_dodge2(width = 1), angle = 90,
+            hjust = 1.1)
+
+# Gli strumenti connessi al maggior numero di strumenti sono:
+# - CSS
+# -Jquery
+# - asp.net
+# Questi strumenti sono quelli più utilizzati insieme ad altri strumenti più o meno importanti,   il gruppo JavaScript ha molti strumenti con alta degree centralità.
+
+```
+# GRAFO 3) degree centrality solo degli strumenti connessi a strumenti di gruppi diversi
+```{r}
+edges_connection_diff <- edges_connection4 %>%
+  filter(group != group2)
+
+g = graph_from_data_frame(edges_connection_diff, directed = F, nodes_degree)
+
+nodes_degree_diff <- nodes_degree %>%
+  filter(degree(g) > 0) 
+
+g1 = graph_from_data_frame(edges_connection_diff, directed = F, nodes_degree)
+g1 <- delete.vertices(g, V(g)[ degree(g) == 0] )
+
+nodes_degree_diff2 <- nodes_degree_diff %>%
+  mutate(degree = strength(g1, weights = edges_connection_diff$connection))
+  
+g1 = graph_from_data_frame(edges_connection_diff, directed = F, nodes_degree_diff2)
+lay = create_layout(g1, layout = "fr")
+
+ggraph(lay) + 
+  geom_edge_link(aes(alpha = connection), show.legend = NA, width = 1, edge_colour = "red") +
+  labs(title = "degree centrality connection graph (different groups)") +
+  geom_node_point(aes(color = group, size = degree), position = "identity", show.legend = NA) +
+  geom_node_text(aes(label = name), show.legend = F, size = 2.5, repel = T) +
+  theme(panel.background = element_blank(), axis.text = element_blank(),
+        axis.ticks = element_blank(), axis.title = element_blank()) +
+  scale_color_manual(values = c("#FF0000", "#FF8000", "#FFFF00", "#80FF00",                   
+                                "#00FF80", "#00FFFF", "#0080FF", "#0000FF",                 
+                                "#FF00FF"))
+
+# Il grafo mostra la degree centrality (di tipo 'all', essendo il grafo indiretto) definita      dalla dimensione dei nodi solo per gli strumenti che si connettono a strumenti appartenenti a   gruppi diversi, ne risulta un grafo disconnesso.
+
+```
+# DOMANDA 8.1) quali sono gli strumenti più connessi tra gruppi differenti?
+```{r}
+edges_most_connection_diff <- edges_connection_diff %>%
+  arrange(-connection) %>%
+  distinct(connection, .keep_all = T) %>%
+  head(10)
+
+ggplot(edges_most_connection_diff) +
+  labs(title = "most connected scatterplot") +
+  geom_point(aes(x = source, y = connection, color = group2), size = 3) +
+  geom_point(aes(x = source, color = group), y = 0, size = 3) +
+  geom_segment(aes(y = 0, yend = connection, x = source, xend = source)) +
+  geom_text_repel(aes(x = source, y = connection, label = target), size = 2.5) +
+  scale_color_manual(values = c("#FF0000", "#FFFF00", "#80FF00", "#00FF80", "#00FFFF",
+                                "#0080FF", "#0000FF")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+
+#le connessioni più rilevanti tra strumenti appartenenti a gruppi diversi sono:
+# - Java <-> Android
+# - NodeJS <-> AngularJS
+# - NodeJS <-> JavaScript
+# Possiamo concludere i gruppi JavaScript e NodeJs sono i due più connessi dell'intera rete.
+```
+
+# DOMANDA 8.2) quali sono gli strumenti connessi a più strumenti appartenenti a gruppi diversi?
+```{r}
+nodes_most_degree_diff <- nodes_degree_diff2 %>%
+  arrange(-degree) %>%
+  head(10)
+
+ggplot(nodes_most_degree_diff, aes(x = group, y = degree)) + 
+  geom_col(aes(fill = group), color = "black", show.legend = F, position = "dodge2") +
+  labs(title = "most degree centrality barplot (different groups)") + 
+  scale_fill_manual(values = c("#FF0000", "#80FF00", "#00FF80", "#00FFFF", "#0000FF")) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  geom_text(aes(label = name), position = position_dodge2(width = 1), angle = 90,
+            hjust = 1.1)
+
+# a partire dal nuovo grafo che mostra solo le connessioni tra diversi gruppi, gli strumenti con più alta degree centrality sono:
+# - AngularJS
+# - Java
+# - NodeJS.
+# Come si vede dal grafo mostrato in precedenza AngularJS è connesso a 3 gruppi diversi, i       seguenti due rispettivamente a 2 e un solo gruppo. Si ricorda che la degree centrality è       calcolata su un grafo pesato quindi i risultati dipendono anche dal valore della connessione.
+
+```
+# GRAFO 4) closeness centrality
+```{r}
+g = graph_from_data_frame(edges_connection4, directed = F, nodes1)
+g1 <- components(g)
+g <- delete.vertices(g, g1$membership != 1) 
+memb <- as.data.frame(g1$membership)
+memb2 <- cbind(rownames(memb), memb)
+memb3 <- memb2 %>%
+  filter(g1$membership == 1) %>%
+  rename(source = "rownames(memb)") %>%
+  inner_join(edges_connection4, memb2, by = "source") %>%
+  select(target, everything()) %>%
+  select(source, everything())
+
+memb4 <- memb3 %>%
+  count(source) %>%
+  select(source)
+
+n1 <- nodes1 %>%
+  rename(source = name)
+
+n2 <-  left_join(memb4, n1, by = "source") %>%
+  rename(name = source)
+
+nodes_closeness <- n2 %>%
+  #mutate(closeness_centr = closeness(g)) %>%
+  mutate(closeness_centr = closeness(g, weights = memb3$connection)) %>%
+  mutate(closeness_centr = as.double(format(round(closeness_centr, 6))))
+
+g = graph_from_data_frame(memb3, directed = F, nodes_closeness)
+lay = create_layout(g, layout = "igraph", algorithm = "nicely")
+
+ggraph(lay) + 
+  geom_edge_link(aes(alpha = connection), show.legend = NA, width = 1, edge_colour = "gray") +
+  labs(title = "closeness centrality connection graph") +
+  geom_node_point(aes(color = group, size = closeness_centr), position = "identity",
+                  show.legend = NA) +
+  geom_node_text(aes(label = ifelse(nodes_closeness$closeness_centr >
+                                      mean(nodes_closeness$closeness_centr),
+                                    as.character(name), "")), show.legend = F, size = 2.5,
+                 repel = T) +
+  theme(panel.background = element_blank(), axis.text = element_blank(),
+        axis.ticks = element_blank(), axis.title = element_blank()) +
+  scale_color_manual(values = c("#FF0000", "#FF8000", "#FFFF00", "#80FF00",                                         "#00FF80", "#00FFFF", "#0080FF", "#0000FF",                                         "#FF00FF"))
+
+# Il grafo mostra la closeness centrality (di tipo 'all', essendo il grafo indiretto) definita   dalla dimensione dei nodi. Per il calcolo della closeness centrality su un grafo non connesso   ho deciso di usare la soluzione che prevede il suddetto calcolo solo sulla componente          gigante, eliminando così alcuni gruppi di poca importanza. Gli strumenti etichettati sono      quelli con centralità maggiore della centralità media del grafo.
+
+```
+# DOMANDA 9) quali sono gli strumenti posti in maniera che possano influenzare maggiormente la struttura della rete?
+```{r}
+nodes_most_closeness <- nodes_closeness %>%
+  arrange(-closeness_centr) %>%
+  head(10)
+
+ggplot(nodes_most_closeness, aes(x = group, y = closeness_centr)) + 
+  geom_col(aes(fill = group), color = "black", show.legend = F, position = "dodge2") +
+  labs(title = "most closeness centrality barplot") + 
+  scale_fill_manual(values = c("#FF0000", "#FFFF00", "#80FF00", "#00FFFF", "#0000FF",  
+                               "#FF00FF")) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  geom_text(aes(label = name), position = position_dodge2(width = 1), angle = 90,
+            hjust = 1.1)
+
+# Gli strumenti più vicini a più strumenti sono:
+# - C
+# - Codeigniter
+# - Json
+# Il calcolo di questa centralità non ci dà nessuna risposta utile per l'analisi di questa rete   ma contribuirà a decretare quali sono gli strumenti più importanti.
+
+```
+# GRAFO 5) betweenness centrality
+```{r}
+g = graph_from_data_frame(edges_connection4, directed = F, nodes1)
+nodes_betweenness <- nodes1 %>%
+  mutate(betweenness_centr = betweenness(g, directed = F, weights = 
+                                           edges_connection4$connection))
+g = graph_from_data_frame(edges_connection4, directed = F, nodes_betweenness)
+lay = create_layout(g, layout = "igraph", algorithm = "nicely")
+
+ggraph(lay) + 
+  geom_edge_link(aes(alpha = connection), show.legend = NA, width = 1, edge_colour = "gray") +
+  labs(title = "Betweenness centrality connection graph") +
+  geom_node_point(aes(color = group, size = betweenness_centr), position = "identity",
+                  show.legend = NA) +
+  geom_node_text(aes(label = ifelse(nodes_betweenness$betweenness_centr >
+                                      mean(nodes_betweenness$betweenness_centr),
+                                    as.character(name), "")), show.legend = F, size = 2.5,
+                 repel = T) +
+  theme(panel.background = element_blank(), axis.text = element_blank(),
+        axis.ticks = element_blank(), axis.title = element_blank()) +
+  scale_color_manual(values = c("#FF9999", "#FF0000", "#FF8000", "#FFFF00", "#80FF00",                                         "#00FF00", "#00FF80", "#00FFFF", "#0080FF", "#0000FF",                                         "#7F00FF", "#FF00FF", "#FF007F", "#808080"))
+
+# Il grafo mostra la betweenness centrality (di tipo 'all', essendo il grafo indiretto)          definita dalla dimensione dei nodi. Gli strumenti etichettati sono quelli con centralità       maggiore della centralità media del grafo.
+
+```
+# DOMANDA 10) quali sono gli strumenti che collegano più gruppi?
+```{r}
+nodes_most_betweenness <- nodes_betweenness %>%
+  arrange(-betweenness_centr) %>%
+  head(10)
+
+ggplot(nodes_most_betweenness, aes(x = group, y = betweenness_centr)) + 
+  geom_col(aes(fill = group), color = "black", show.legend = F, position = "dodge2") +
+  labs(title = "most betweenness centrality barplot") + 
+  scale_fill_manual(values = c("#FFFF00", "#00FF80", "#00FFFF", "#0080FF",
+                                "#FF00FF")) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  geom_text(aes(label = name), position = position_dodge2(width = 1), angle = 90,
+            hjust = 1.1)
+
+#gli strumenti più in mezzo agli atri sono:
+# - Linux
+# - mySQL
+# - Jquery. 
+# Osservando il grafo si nota che i nodi col valore di betweenness più alto sono quelli che,     una volta rimossi, potrebbere disconnettere l'intera componente gigante della rete: sono       quindi gli strumenti che collegano gruppi diversi. Sono presenti alcuni 'ponti' che collegano   singolarmente diversi gruppi. Sono presenti delle 'foglie' con bassa centralità.
+
+```
+# DOMANDA 11) quali sono gli strumenti più importanti? si tiene conto di utilizzo e di degree, closeness, betweenness centrality
+```{r}
+nodes_most_degree_filtered <- nodes_most_degree %>%
+  select(name, degree, group)
+nodes_most_closeness_filtered <- nodes_most_closeness %>%
+  select(name, closeness_centr, group)
+nodes_most_betweenness_filtered <- nodes_most_betweenness %>%
+  select(name, betweenness_centr, group)
+nodes_most_all <- full_join(nodes_most_closeness_filtered, nodes_most_betweenness_filtered, 
+                             by = "name")
+nodes_most_all[is.na(nodes_most_all)] <- ""
+nodes_most_all <- nodes_most_all %>%
+  unite(group, group.x, group.y, sep = "") %>%
+  mutate(group = replace(group, str_detect(group, "JavaScript groupJavaScript group"),
+                         "JavaScript group"))
+
+nodes_most_all2 <- full_join(nodes_most_tagged, nodes_most_degree_filtered, by = "name")
+nodes_most_all2[is.na(nodes_most_all2)] <- ""
+nodes_most_all2 <- nodes_most_all2 %>%
+  unite(group, group.x, group.y, sep = "") %>%
+  mutate(group = replace(group, str_detect(group, "JavaScript groupJavaScript group"),
+                         "JavaScript group"))
+
+nodes_most_all31 <- full_join(nodes_most_all2, nodes_most_all, by = "name")
+  nodes_most_all31[is.na(nodes_most_all31)] <- ""
+nodes_most_all3 <- nodes_most_all31 %>%
+  unite(group, group.x, group.y, sep = "") %>%
+  mutate(group = replace(group, str_detect(group, "Python groupPython group"),
+                         "Python group")) %>%
+  mutate(group = replace(group, str_detect(group, "C# groupC# group"),
+                         "C# group")) %>%
+  mutate(group = replace(group, str_detect(group, "JavaScript groupJavaScript group"),
+                         "JavaScript group")) %>%
+  gather(value, usage, degree, closeness_centr, betweenness_centr, key = "type") %>%
+  filter(value != "") %>%
+  mutate(value = ifelse(type == "closeness_centr", format(round(as.numeric(value), 6)),
+                        format(round(as.numeric(value), 2))))
+
+
+ggplot(nodes_most_all3) + 
+  geom_point(aes(x = name, y = value, color = group), show.legend = F, na.rm = T, size = 2) +
+  labs(title = "most usage and centrality grid scatterplot") +
+  facet_grid(type ~ group, scales = "free") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1, size = 8)) +
+  scale_color_manual(values = c("#FF0000", "#FFFF00", "#80FF00", "#00FF80", "#00FFFF", 
+                                "#0080FF", "#0000FF", "#FF00FF"))
+
+# E' difficile decretare il nodo più importante con queste caratteristiche, si nota che          JavaScript è tra i migliori per utilizzo e degree centrality, mentre non si trova per          closeness e betweenness. Da quest'analisi però evince che il suo gruppo è il più importante    nella rete, ha il maggior numero di nodi importanti che contribuiscono in tutte e 4 le         caratteristiche confrontate.
+
+```
+
+# GRAFO 6) transitivity
+```{r}
+g = graph_from_data_frame(edges_connection4, directed = F, nodes1)
+nodes_transitivity <- nodes1 %>%
+  mutate(transitivity = transitivity(g, type = "local", weights = edges_connection4$connection))
+#gt = transitivity(g, type = "global")
+g = graph_from_data_frame(edges_connection4, directed = F, nodes_transitivity)
+lay = create_layout(g, layout = "igraph", algorithm = "nicely")
+
+ggraph(lay) + 
+  geom_edge_link(aes(alpha = connection), show.legend = NA, width = 1,
+                 edge_colour = "gray") +
+  labs(title = "transitivity connection graph") +
+  geom_node_point(aes(color = group, size = transitivity), position = "identity",
+                  show.legend = NA) +
+  geom_node_text(aes(label = ifelse(nodes_transitivity$transitivity >
+                                      mean(nodes_transitivity$transitivity),
+                                    as.character(name), "")), show.legend = F, size = 2.5,
+                 repel = T) +
+  theme(panel.background = element_blank(), axis.text = element_blank(),
+        axis.ticks = element_blank(), axis.title = element_blank()) +
+  scale_color_manual(values = c("#FF9999", "#FF0000", "#FF8000", "#FFFF00", "#80FF00",                                         "#00FF00", "#00FF80", "#00FFFF", "#0080FF", "#0000FF",                                         "#7F00FF", "#FF00FF", "#FF007F", "#808080"))
+
+# Il grafo mostra la transitivity definita dalla dimensione dei nodi. Gli strumenti etichettati   sono quelli con transitività maggiore della transitività media del grafo.
+
+```
+# DOMANDA 12) quali sono gli struemnti con la più alta probabilità di connettersi agli strumenti adiacenti (se dovessero essere aggiunti)?
+```{r}
+nodes_most_transitivity <- nodes_transitivity %>%
+  arrange(-transitivity) %>%
+  head(20)
+
+ggplot(nodes_most_transitivity, aes(x = group, y = transitivity)) + 
+  geom_col(aes(fill = group), color = "black", show.legend = F, position = "dodge2") +
+  labs(title = "most transitivity barplot") + 
+  scale_fill_manual(values = c("#FF0000",  "#FFFF00", "#00FF80", "#00FFFF", "#0000FF")) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  geom_text(aes(label = name), position = position_dodge2(width = 1), angle = 90,
+            hjust = 1.1)
+
+
+# Ci sono molti strumenti che formano delle triadi nella rete, quindi molti sono gli strumenti   che hanno una buona probabilità di connettersi agli adiacenti. I 3 migliori sono               relativamente sconosciuti (qui centralità e utilizzo non entrano in gioco) e sono:
+# - wpf
+# - twitter-bootstrap (pari merito)
+
+```
+# GRAFO 7) pagerank centrality
+```{r}
+g = graph_from_data_frame(edges_connection4, directed = F, nodes1)
+pr <- page_rank(g, directed = F, weights = edges_connection4$connection)
+prd <- as.data.frame(pr$vector)
+prd2 <- cbind(rownames(prd), prd) %>%
+  rename(name = "rownames(prd)") %>%
+  rename(pagerank_centr = "pr$vector") %>%
+  select(name, pagerank_centr)
+
+nodes_pagerank <- inner_join(nodes1, prd2, by = "name") %>%
+  arrange(-pagerank_centr)
+g = graph_from_data_frame(edges_connection4, directed = F, nodes_pagerank)
+lay = create_layout(g, layout = "igraph", algorithm = "nicely")
+
+ggraph(lay) + 
+  geom_edge_link(aes(alpha = connection), show.legend = NA, width = 1,
+                 edge_colour = "gray") +
+  labs(title = "pagerank centrality connection graph") +
+  geom_node_point(aes(color = group, size = pagerank_centr), position = "identity",
+                  show.legend = NA) +
+  geom_node_text(aes(label = ifelse(nodes_pagerank$pagerank_centr >
+                                      mean(nodes_pagerank$pagerank_centr), as.character(name),
+                                    "")), show.legend = F, size = 2.5, repel = T) +
+  theme(panel.background = element_blank(), axis.text = element_blank(),
+        axis.ticks = element_blank(), axis.title = element_blank()) +
+  scale_color_manual(values = c("#FF9999", "#FF0000", "#FF8000", "#FFFF00", "#80FF00",                                         "#00FF00", "#00FF80", "#00FFFF", "#0080FF", "#0000FF",                                         "#7F00FF", "#FF00FF", "#FF007F", "#808080"))
+
+# Il grafo mostra la pagerank centrality definita dalla dimensione dei nodi. Non ho scelto       l'eigenvector perchè il grafo non è connesso e nemmeno la katz perchè ci sono molti nodi       importanti che si collegano a diversi altri. Gli strumenti etichettati sono quelli con         centralità maggiore della centralità media del grafo.
+
+```
+# DOMANDA 13) quali sono gli strumenti connessi agli strumenti più importanti?
+```{r}
+nodes_most_pagerank <- nodes_pagerank %>%
+  arrange(-pagerank_centr) %>%
+  head(20)
+
+
+ggplot(nodes_most_pagerank, aes(x = group, y = pagerank_centr)) + 
+  geom_col(aes(fill = group), color = "black", show.legend = F, position = "dodge2") +
+  labs(title = "most pagerank centrality barplot") + 
+  scale_fill_manual(values = c("#FF0000", "#FFFF00", "#80FF00", "#00FF80", "#00FFFF",
+                               "#0080FF", "#0000FF", "#FF00FF")) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  geom_text(aes(label = name), position = position_dodge2(width = 1), angle = 90,
+            hjust = 1.1)
+
+
+# Sul podio troviamo nomi gia conosciuti:
+# - C#
+# - Linux
+# - CSS
+# Il loro numero di connessioni (pesate), la centralità di coloro a cui si connettono e loro     grado di propensione al collegamento determinano la pagerank centrality. Intuitivamente gli    strumenti utilizzati maggiormente non si trovano in classifica, ma si trovano invece gli       strumenti più connessi a quest'ultimi
+
+```
+# DOMANDA 14.1) come sono correlate le varie centralità e l'utilizzo?
+```{r}
+nodes_degree_filtered <- nodes_degree %>%
+  select(name, degree)
+nodes_closeness_filtered <- nodes_closeness %>%
+  select(name, closeness_centr)
+nodes_betweenness_filtered <- nodes_betweenness %>%
+  select(name, betweenness_centr)
+nodes_pagerank_filtered <- nodes_pagerank %>%
+  select(name, pagerank_centr)
+nodes_all0 <- left_join(nodes1, nodes_degree_filtered, by = "name") %>%
+  mutate(usage = rescale(usage, c(0, 100))) %>%
+  mutate(degree = rescale(degree, c(0, 100)))
+nodes_all1 <- left_join(nodes_betweenness_filtered, nodes_closeness_filtered,
+                                         by = "name") %>%
+  mutate(closeness_centr = rescale(closeness_centr, c(0, 100))) %>%
+  mutate(betweenness_centr = rescale(betweenness_centr, c(0, 100)))
+nodes_all2 <- left_join(nodes_all0, nodes_all1, by = "name") %>%
+  mutate(closeness_centr = ifelse(is.na(closeness_centr), 0, closeness_centr))
+nodes_all3 <- left_join(nodes_all2, nodes_pagerank_filtered, by = "name") %>%
+  mutate(pagerank_centr = rescale(pagerank_centr, c(0, 100))) %>%
+  mutate(usage = rescale(usage, c(0, 100)))
+
+nodes_correlation <- nodes_all3 %>%
+   select(usage:pagerank_centr)
+
+ggcorrplot(cor(nodes_correlation), method = "circle", lab = T, title = "data correlation")
+
+# Degree e pagerank centrality sono correlate più delle altre
+
+```
+# DOMANDA 14.2) in che relazione sono gli strumenti più connessi e gli strumenti connessi che vi si connettono?
+```{r}
+
+nodes_all3_diff <- nodes_all3 %>%
+  mutate(diff = abs(degree - pagerank_centr))
+  
+ggplot(nodes_all3_diff, aes(x = degree, y = pagerank_centr)) +
+  labs(title = "relationship degree - pagerank scatterplot") +
+  geom_jitter(color = ifelse(nodes_all3_diff$diff > 25, "red", "black")) +
+  geom_smooth(method = "loess") +
+  geom_text_repel(aes(label = ifelse(diff > 25, as.character(name), "")), size = 3)
+
+
+# Dallo scatterplot seguente possiamo affermare che gli strumenti più connessi sono anche gli    strumenti connessi a quelli più connessi (nella magior parte): quindi strumenti importanti     sono connessi tendenzialmente a strumenti importanti. Dove questo non accade? per Linux,       JavaScript, Docker (top 3) e tutti gli altri punti marcati in rosso la differenze tra le due   centralità è più alta.
+
+```
+# GRAFO 8) similarity
+```{r}
+g = graph_from_data_frame(edges_connection4, directed = F, nodes1)
+nodes11 <- nodes1 %>%
+  mutate(name = as.character(name))
+nodes_duplicated <- nodes11 %>%
+  select(name)
+ids <- as.data.frame(1:115) %>%
+  rename(id = "1:115")
+nodes_duplicated <- cbind(nodes_duplicated, replicate(115, nodes_duplicated$name))
+ids_duplicated <- cbind(ids, replicate(115, ids$id))
+ids_duplicated2 <- ids_duplicated %>%
+  gather(id) %>%
+  select(value)
+nodes_duplicated2 <- nodes_duplicated %>%
+  gather(name) %>%
+  select(value) %>%
+  mutate()
+nodes_duplicated3 <- nodes_duplicated2 %>%
+  mutate(id = ids_duplicated2$value) %>%
+  arrange(id) %>%
+  select(value)
+
+dfs <- as.data.frame (similarity.invlogweighted(g))
+edges_similarity <- dfs %>%
+  gather(value = V1:V115) %>%
+  mutate(target = nodes_duplicated2$value) %>%
+  mutate(source = nodes_duplicated3$value) %>%
+  rename(similarity = "V1:V115") %>%
+  select(source, target, similarity) %>%
+  filter(source != target) %>%
+  filter(similarity > 0) %>%
+  filter(similarity > mean(similarity))
+
+nodes_similarity0 <- edges_similarity %>%
+  select(source) %>%
+  count(source) %>%
+  select(source) %>%
+  rename(name = source)
+nodes_similarity <- inner_join(nodes_similarity0, nodes11, by = "name") %>%
+  select(name, group)
+
+g = graph_from_data_frame(edges_similarity, directed = F, nodes_similarity)
+lay = create_layout(g, layout = "igraph", algorithm = "kk")
+
+ggraph(lay) + 
+  geom_edge_link(aes(alpha = similarity), show.legend = NA, width = 1,
+                 edge_colour = "gray") +
+  labs(title = "similarity over mean graph") +
+  geom_node_point(aes(color = group), show.legend = NA, size = 3) +
+  geom_node_text(aes(label = nodes_similarity$name), show.legend = F, size = 2.5, repel = T) +
+  theme(panel.background = element_blank(), axis.text = element_blank(),
+        axis.ticks = element_blank(), axis.title = element_blank()) +
+ scale_color_manual(values = c("#FF0000", "#FFFF00", "#80FF00", "#00FF80", "#00FFFF", 
+                               "#0080FF", "#0000FF", "#FF00FF"))
+
+# Il grafo mostra gli strumenti, ora l'arco rappresenta il grado di similarità tra i due         strumenti connessi, maggiore è la connessione maggiore è il numero di strumenti che            condividono. Sono mostrate solo le similarità sopra la media, ne segue quindi che alcuni       strumenti sono stati rimossi dal grafo.
+
+```
+# DOMANDA 15) quali sono le coppie di strumenti che hanno più strumenti in comune?
+```{r}
+edges_similarity_united0 <- edges_similarity %>%
+  arrange(-similarity) %>%
+  distinct(similarity, .keep_all = T) %>%
+  head(20) %>%
+  rename(name = target)
+edges_similarity_united <- inner_join(edges_similarity_united0, nodes_similarity,
+                                      by = "name") %>%
+  rename(target = name)
+ggplot(edges_similarity_united) +
+  labs(title = "most similarity scatterplot") +
+  geom_point(aes(x = source, y = similarity, color = group), size = 3) +
+  geom_segment(aes(y = 0, yend = similarity, x = source, xend = source)) +
+  geom_text_repel(aes(x = source, y = similarity, label = target), size = 2.5) +
+  scale_color_manual(values = c("#FFFF00", "#00FF80", "#00FFFF", "#0000FF")) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+
+# Il risultato mostra che gli strumenti che hanno in comune più strumenti sono:
+# - CSS ~ Jquery
+# - asp.net ~ C#
+# - Spring ~ Hibernate
+# Non a caso le gli strumenti che compongono le coppie appartengono entrambi allo stesso gruppo
+
+```
+# DOMANDA 16) come dovrebbero essere ridisposti i gruppi tenendo conto della betweenness di ogni strumento?
+```{r}
+g = graph_from_data_frame(edges_connection4, directed = F, nodes1)
+
+ceb <- cluster_edge_betweenness(g)
+nodes_cluster <- nodes1 %>%
+  mutate(cluster = as.character(ceb$membership))
+g = graph_from_data_frame(edges_connection4, directed = F, nodes_cluster)
+lay = create_layout(g, layout = "igraph", algorithm = "nicely")
+
+ggraph(lay) + 
+  geom_edge_link(show.legend = NA, edge_colour = "gray") +
+  labs(title = "betweenness community detection facet graph") +
+  geom_node_point(aes(color = group), show.legend = NA, size = 1.5) +
+  theme(panel.background = element_blank(), axis.text = element_blank(),
+        axis.ticks = element_blank(), axis.title = element_blank()) +
+  facet_nodes(~ cluster) +
+  scale_color_manual(values = c("#FF9999", "#FF0000", "#FF8000", "#FFFF00", "#80FF00",                                         "#00FF00", "#00FF80", "#00FFFF", "#0080FF", "#0000FF",                                         "#7F00FF", "#FF00FF", "#FF007F", "#808080"))
+
+# Per la community detection ho scelto il metodo di clustering sulla betweenness dei nodi. Il    cambiamento radicale rispetto al grafo di partenza lo si nota nel gruppo 4: qui vengono uniti   i gruppi Android e Linux creando un nuovo gruppo. Gli altri gruppi mantengono all'incirca gli   stessi nodi.
+
+```
+
+#NEURAL NET
+#network plot
+```{r}
+
+# Si vuole scoprire se attraverso le centralità (non ricorsive) si può giungere ad una           predizione del valore di utilizzo per ogni struemento. Si utilizza una rete neurale.
+
+# Preparazione dataset: l'utilizzo è la variabile dipendente, le centralità sono indipendenti.
+nodes_degree_nn <- nodes_degree %>%
+  select(name, usage, degree)
+nodes_closeness_nn <- nodes_closeness %>%
+  select(name, closeness_centr)
+nodes_betweenness_nn <- nodes_betweenness %>%
+  select(name, betweenness_centr)
+nodes_neural_cb <- full_join(nodes_closeness_nn, nodes_betweenness_nn, by = "name") 
+nodes_neural <- full_join(nodes_degree_nn, nodes_neural_cb, by = "name") %>%
+  select(degree, closeness_centr, betweenness_centr, usage) %>%
+  mutate(closeness_centr = ifelse(is.na(closeness_centr), 0, closeness_centr)) %>%
+  rename(closeness = closeness_centr) %>%
+  rename(betweenness = betweenness_centr)
+
+# Assegnazione random al test set e al training set. Il training set viene usato per trovare le   relazioni tra le variabili dipendenti e indipendenti, il test set valuta l'efficienza del      modello, il 60% del dataset viene usato nel training set.
+samplesize = 0.60 * nrow(nodes_neural)
+set.seed(80)
+index = sample(seq_len(nrow(nodes_neural)), size = samplesize)
+
+# Creazione di test set e train set.
+datatrain = nodes_neural[index, ]
+datatest = nodes_neural[-index, ]
+
+# Scale delle variabili, altrimenti alcune variabili potrebbero avere un forte impatto sulle     predizioni. Per lo scale utilizzo la min-max normalizzation.
+max = sapply(nodes_neural, max, na.rm = T)
+min = sapply(nodes_neural, min, na.rm = T)
+scaled = as.data.frame(scale(nodes_neural, center = min, scale = max - min))
+
+trainNN = scaled[index, ]
+testNN = scaled[-index, ]
+
+# Neural network
+set.seed(2)
+NN = neuralnet(usage ~ degree + closeness + betweenness, trainNN, hidden = 3,
+               linear.output = T )
+
+plot(NN)
+
+```
+
+#predictions plot
+```{r}
+# Predizioni
+predict_testNN = compute(NN, testNN[,c(1:3)])
+predict_testNN = (predict_testNN$net.result * (max(nodes_neural$usage) - min(nodes_neural$usage))) + min(nodes_neural$usage)
+
+plot(datatest$usage, predict_testNN, col = 'blue', pch = 16, ylab = "predicted rating NN",
+     xlab = "real rating")
+
+abline(0,1)
+
+# Dallo scatterplot presente si può dedurre che i valori predetti e reali sono per la maggior    parte diversi. Quindi dalle centralità non possiamo ricavarne l'utilizzo.
+
+```
+
+
